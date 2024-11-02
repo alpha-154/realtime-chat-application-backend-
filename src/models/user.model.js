@@ -32,8 +32,13 @@ const userSchema = new Schema({
     ],
     privateChatList: [
         {
-            type: Schema.Types.ObjectId,
-            ref: "Privatechat", // Reference to Privatechat documents
+            friendUsername: {
+                type: String,
+            },
+            privateMessageId: {
+                type: Schema.Types.ObjectId,
+                ref: "PrivateMessage",
+            },
         },
     ],
     friendList: [

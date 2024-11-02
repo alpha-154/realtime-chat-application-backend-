@@ -1,12 +1,14 @@
 import User from "../models/user.model.js";
 import Publickey from "../models/publickey.model.js";
+import Message from "../models/message.model.js";
+import PrivateMessage from "../models/privatemessage.model.js";
 import jwt from "jsonwebtoken";
 import userRegisterSchema from "../schemas/userRegister.schema.js";
 import userLoginSchema from "../schemas/userLogin.schema.js";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { v2 as cloudinary } from "cloudinary";
-import { profile } from "console";
+
 //Todo: add zod validation as such so that a user have to provide strong password.
 
 
@@ -170,7 +172,6 @@ export const getUserId = (req, res) => {
     }
   };
 
-  // Send message request
 
 
 
@@ -212,7 +213,6 @@ export const sendMessageRequest = async (req, res) => {
 };
 
 
-  //accept message request
 
 
 export const acceptMessageRequest = async (req, res) => {
@@ -234,7 +234,7 @@ export const acceptMessageRequest = async (req, res) => {
             return res.status(400).json({ message: "Cannot accept your own message request!" });
         }
 
-        // Add each user to the other’s friend list if not already present
+        // Add each user to the other’s friend list if not already present and remove the message request
         await User.updateOne(
             { _id: currentUserData._id },
             {
@@ -247,6 +247,47 @@ export const acceptMessageRequest = async (req, res) => {
             { $addToSet: { friendList: currentUserData._id } }
         );
 
+        // Check if a PrivateMessage document already exists between these users
+        let privateMessage = await PrivateMessage.findOne({
+            members: { $all: [currentUserData._id, requestedUserData._id] },
+        });
+
+        if (!privateMessage) {
+            // Create new PrivateMessage document if it doesn’t exist
+            privateMessage = new PrivateMessage({
+                members: [currentUserData._id, requestedUserData._id],
+            });
+            await privateMessage.save();
+        }
+
+
+        //newly added code: 
+        await User.updateOne(
+            { _id: currentUserData._id },
+            {
+                $addToSet: {
+                    privateChatList: {
+                        friendUsername: requestedUser,
+                        privateMessageId: privateMessage._id,
+                    },
+                },
+            }
+        );
+
+        await User.updateOne(
+            { _id: requestedUserData._id },
+            {
+                $addToSet: {
+                    privateChatList: {
+                        friendUsername: currentUser,
+                        privateMessageId: privateMessage._id,
+                    },
+                },
+            }
+        );
+
+
+
         res.status(200).json({ message: "Message request accepted successfully!" });
     } catch (error) {
         console.error("Error accepting message request:", error);
@@ -255,7 +296,7 @@ export const acceptMessageRequest = async (req, res) => {
 };
 
 
-  //get notifications
+
 
 
 export const getNotifications = async (req, res) => {
@@ -286,7 +327,7 @@ export const getNotifications = async (req, res) => {
 
 
 
-// Controller to fetch all connected users from the friendList of a specified user
+
 export const getConnectedUsers = async (req, res) => {
     const { loggedInUserUsername } = req.params;
 
@@ -297,7 +338,7 @@ export const getConnectedUsers = async (req, res) => {
     try {
         // Fetch the user by username and populate the friendList field
         const user = await User.findOne({ userName: loggedInUserUsername })
-            .select("friendList") // Only select friendList to reduce data retrieval
+            .select("friendList privateChatList") // Only select friendList to reduce data retrieval
             .populate({
                 path: "friendList",
                 select: "userName profileImage" // Only populate userName and profileImage fields
@@ -307,8 +348,24 @@ export const getConnectedUsers = async (req, res) => {
             return res.status(404).json({ message: "User not found." });
         }
 
+       //console.log(user.friendList);
+      
+        //newly added code: 
+        const connectedUsers = user.friendList.map(friend => {
+            const privateChat = user.privateChatList.find(
+                chat => chat.friendUsername === friend.userName
+            );
+
+            return {
+                ...friend.toObject(),
+                privateMessageId: privateChat ? privateChat.privateMessageId : null,
+            };
+        });
+
+        //console.log("connected users", connectedUsers);
+
         // Respond with the populated friendList as connectedUsers
-        res.status(200).json({ connectedUsers: user.friendList });
+        res.status(200).json({ connectedUsers });
     } catch (error) {
         console.error("Error fetching connected users:", error);
         res.status(500).json({ message: "Internal server error." });
@@ -318,7 +375,7 @@ export const getConnectedUsers = async (req, res) => {
 
 
 
-// Controller to search users by username
+
 export const searchUsers = async (req, res) => {
   try {
     const { query } = req.query;
@@ -333,4 +390,92 @@ export const searchUsers = async (req, res) => {
     console.error("Error searching users:", error);
     res.status(500).json({ error: "Server error" });
   }
+};
+
+
+export const sendMessage = async (req, res) => {
+    const { sender, receiver, content } = req.body;
+    
+    if (!sender || !receiver || !content) {
+        return res.status(400).json({ message: "Sender, receiver, and content are required!" });
+    }
+
+    try {
+        // Find sender and receiver in the database
+        const senderUser = await User.findOne({ userName: sender });
+        const receiverUser = await User.findOne({ userName: receiver });
+
+        if (!senderUser || !receiverUser) {
+            return res.status(404).json({ message: "Sender or receiver not found!" });
+        }
+
+        // Check for an existing PrivateMessage document
+        const privateMessage = await PrivateMessage.findOne({
+            members: { $all: [senderUser._id, receiverUser._id] },
+        });
+
+        if (!privateMessage) {
+            return res.status(403).json({ message: "No message thread exists between these users!" });
+        }
+
+        const createdAt = new Date().toISOString().split('T')[0];
+
+        // Create a new message
+        const newMessage = new Message({
+            from: sender,
+            to: receiver,
+            content,
+            isGroupMsg: false, // This is a private message, not a group message
+            privateMsgIdentifier: privateMessage._id,
+            createdAt
+        });
+
+        // Save the message
+        await newMessage.save();
+
+        // Add message to the PrivateMessage's message list
+        privateMessage.messageList.push(newMessage._id);
+        await privateMessage.save();
+
+        res.status(201).json({ message: newMessage });
+    } catch (error) {
+        console.error("Error sending message:", error);
+        res.status(500).json({ message: "Internal server error!" });
+    }
+};
+
+
+
+
+export const getPreviousMessages = async (req, res) => {
+    const { currentUser, chatWithUser } = req.params;
+
+    try {
+        // Get user data by username
+        const currentUserData = await User.findOne({ userName: currentUser });
+        const chatWithUserData = await User.findOne({ userName: chatWithUser });
+
+        if (!currentUserData || !chatWithUserData) {
+            return res.status(404).json({ message: "Users not found!" });
+        }
+
+        // Find the PrivateMessage document with both users in the members array
+        const privateMessage = await PrivateMessage.findOne({
+            members: { $all: [currentUserData._id, chatWithUserData._id] },
+        }).populate({
+            path: "messageList",
+            model: "Message",
+            select: "from to content createdAt",
+            options: { sort: { createdAt: 1 } } // Sort messages by timestamp ascending
+        });
+
+        if (!privateMessage) {
+            return res.status(404).json({ message: "No previous messages found!" });
+        }
+
+        res.status(200).json({ messages: privateMessage.messageList });
+    } catch (error) {
+        console.error("Error fetching previous messages:", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
 };

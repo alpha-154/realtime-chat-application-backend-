@@ -4,17 +4,14 @@ const messageSchema = new Schema({
     from: {
         type: String,
         required: true,
-        unique: true,
     },
     to: {
         type: String,
         required: true,
-        unique: true,
     },
     content: {
         type: String,
         required: true,
-        unique: true,
     },
     isGroupMsg: {
         type: Boolean,
@@ -26,11 +23,10 @@ const messageSchema = new Schema({
     },
     privateMsgIdentifier: {
         type: Schema.Types.ObjectId,
-        ref: "Privatechat", // Reference to Privatechat documents
+        ref: "PrivateMessage", // Reference to PrivateMessage documents
     },
     createdAt: {
-        type: Date,
-        default: Date.now,
+        type: String,
     },
 }, { timestamps: true });
 // Define and export the model with the IUser interface

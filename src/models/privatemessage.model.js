@@ -1,10 +1,11 @@
 import mongoose, { Schema } from "mongoose";
+
 const privateMessageSchema = new mongoose.Schema({
     members: [
         {
-            type: String,
-            required: true,
-        },
+            type: Schema.Types.ObjectId,
+            ref: "User",
+        }
     ],
     messageList: [
         {

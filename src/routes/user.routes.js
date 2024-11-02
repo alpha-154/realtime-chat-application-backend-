@@ -8,8 +8,11 @@ import {
   sendMessageRequest,
   getNotifications,
   acceptMessageRequest,
-  getConnectedUsers
+  getConnectedUsers,
+  sendMessage,
+  getPreviousMessages
 } from "../controllers/user.controller.js";
+
 
 const router = Router();
 
@@ -32,5 +35,9 @@ router.get("/notifications/:username", getNotifications);
 
 //Fetching Connected Users of The Current Logged In User
 router.get("/getConnectedUsers/:loggedInUserUsername", getConnectedUsers);
+
+// Sending Private Messages
+router.post("/send-message", sendMessage);
+router.get("/get-previous-messages/:currentUser/:chatWithUser", getPreviousMessages);
 
 export default router;
